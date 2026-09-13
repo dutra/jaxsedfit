@@ -630,6 +630,7 @@ def plot_fit_sed(
     show: bool = False,
     annotate_band_names: bool = True,
     title: str | None = None,
+    plot_residual: bool = True,
 ):
     """Render a component SED plot for a fitted jaxsedfit object.
 
@@ -647,6 +648,8 @@ def plot_fit_sed(
         If True, label observed photometric points by filter name.
     title : str, optional
         Optional title for the SED panel.
+    plot_residual : bool, optional
+        If True, draw the standardized photometric residual panel.
     """
     pred = fitter.predict(posterior=posterior)
     obs_wave = _median_site(pred, "obs_wave")
@@ -668,13 +671,17 @@ def plot_fit_sed(
     bridged_agn_lines = _bridged_jaxsedfit_agn_lines(pred)
 
     with use_style():
-        fig, (ax_sed, ax_resid) = plt.subplots(
-            2,
-            1,
-            figsize=(10, 7),
-            sharex=True,
-            gridspec_kw={"height_ratios": [3.0, 1.0], "hspace": 0.05},
-        )
+        if plot_residual:
+            fig, (ax_sed, ax_resid) = plt.subplots(
+                2,
+                1,
+                figsize=(10, 7),
+                sharex=True,
+                gridspec_kw={"height_ratios": [3.0, 1.0], "hspace": 0.05},
+            )
+        else:
+            fig, ax_sed = plt.subplots(figsize=(10, 5))
+            ax_resid = None
 
         component_sums = {}
         for keys, label, color, lw in _COMPONENT_STYLE:
@@ -953,50 +960,52 @@ def plot_fit_sed(
                     )
                 )
 
-        eff_variance = _median_effective_variance(fitter, pred)
-        eff_sigma = np.sqrt(np.clip(eff_variance, 1e-30, 1.0e60))
-        upper_limits = np.asarray(getattr(fitter.context, "upper_limits", np.zeros_like(obs_flux, dtype=bool)), dtype=bool)
-        finite_chi2 = np.isfinite(obs_flux) & np.isfinite(model_flux) & np.isfinite(eff_sigma) & (eff_sigma > 0.0) & (~upper_limits)
-        resid = _standardized_residuals(obs_flux, model_flux, eff_sigma)
-        resid = np.where(finite_chi2, resid, np.nan)
-        ax_resid.errorbar(
-            phot_wave,
-            resid,
-            yerr=np.where(finite_chi2, 1.0, np.nan),
-            fmt="o",
-            color="black",
-            ms=4,
-            capsize=2,
-        )
-        ax_resid.axhline(0.0, color="black", lw=1.0, ls="--")
-        if "sed_reduced_chi2" in pred:
-            reduced_chi2 = float(
-                np.median(np.asarray(pred["sed_reduced_chi2"], dtype=float))
-            )
-        elif np.any(finite_chi2):
-            chi2 = float(np.sum(resid[finite_chi2] ** 2))
-            reduced_chi2 = chi2 / max(1, int(np.sum(finite_chi2)))
-        else:
-            reduced_chi2 = np.nan
-        if np.isfinite(reduced_chi2):
-            ax_resid.text(
-                0.98,
-                0.05,
-                rf"$\chi^2_\nu = {reduced_chi2:.2f}$",
-                transform=ax_resid.transAxes,
-                va="bottom",
-                ha="right",
+        if ax_resid is not None:
+            eff_variance = _median_effective_variance(fitter, pred)
+            eff_sigma = np.sqrt(np.clip(eff_variance, 1e-30, 1.0e60))
+            upper_limits = np.asarray(getattr(fitter.context, "upper_limits", np.zeros_like(obs_flux, dtype=bool)), dtype=bool)
+            finite_chi2 = np.isfinite(obs_flux) & np.isfinite(model_flux) & np.isfinite(eff_sigma) & (eff_sigma > 0.0) & (~upper_limits)
+            resid = _standardized_residuals(obs_flux, model_flux, eff_sigma)
+            resid = np.where(finite_chi2, resid, np.nan)
+            ax_resid.errorbar(
+                phot_wave,
+                resid,
+                yerr=np.where(finite_chi2, 1.0, np.nan),
+                fmt="o",
                 color="black",
-                fontsize=10,
+                ms=4,
+                capsize=2,
             )
+            ax_resid.axhline(0.0, color="black", lw=1.0, ls="--")
+            if "sed_reduced_chi2" in pred:
+                reduced_chi2 = float(
+                    np.median(np.asarray(pred["sed_reduced_chi2"], dtype=float))
+                )
+            elif np.any(finite_chi2):
+                chi2 = float(np.sum(resid[finite_chi2] ** 2))
+                reduced_chi2 = chi2 / max(1, int(np.sum(finite_chi2)))
+            else:
+                reduced_chi2 = np.nan
+            if np.isfinite(reduced_chi2):
+                ax_resid.text(
+                    0.98,
+                    0.05,
+                    rf"$\chi^2_\nu = {reduced_chi2:.2f}$",
+                    transform=ax_resid.transAxes,
+                    va="bottom",
+                    ha="right",
+                    color="black",
+                    fontsize=10,
+                )
 
         ax_sed.set_xscale("log")
         ax_sed.set_yscale("log")
         ax_sed.set_ylabel("Flux density (mJy)")
         if title is not None:
             ax_sed.set_title(str(title))
-        ax_resid.set_ylabel(_STANDARDIZED_RESIDUAL_LABEL)
-        ax_resid.set_xlabel("Observed-frame wavelength (Å)")
+        if ax_resid is not None:
+            ax_resid.set_ylabel(_STANDARDIZED_RESIDUAL_LABEL)
+        (ax_resid if ax_resid is not None else ax_sed).set_xlabel("Observed-frame wavelength (Å)")
         ax_sed.legend(loc="lower right", fontsize=9, ncol=2)
 
         finite_flux_parts = [np.asarray(obs_flux, dtype=float), np.asarray(model_flux, dtype=float)]
@@ -1011,9 +1020,10 @@ def plot_fit_sed(
                 visible_flux = finite_flux
             ymin = float(np.nanmin(visible_flux))
             ax_sed.set_ylim(ymin * 0.7, ymax * 1.8)
-        ax_resid.set_xscale("log")
         ax_sed.set_xlim(x_min, x_max)
-        ax_resid.set_xlim(x_min, x_max)
+        if ax_resid is not None:
+            ax_resid.set_xscale("log")
+            ax_resid.set_xlim(x_min, x_max)
 
         fig.tight_layout()
         _place_overlapping_band_annotations(fig, band_annotations)

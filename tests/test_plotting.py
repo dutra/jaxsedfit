@@ -293,6 +293,17 @@ def test_plot_fit_sed_uses_likelihood_photometry_and_saved_chi2():
     assert chi2_labels[0].get_text() == r"$\chi^2_\nu = 2.00$"
     assert chi2_labels[0].get_color() == "black"
 
+    # Exercise the public API as well as the single-panel layout.
+    from jaxsedfit.core import JAXSEDFit
+
+    single = JAXSEDFit.plot_sed(fitter, plot_residual=False)
+    assert len(single.axes) == 1
+    assert single.axes[0].get_xlabel() == "Observed-frame wavelength (Å)"
+    assert single.axes[0].get_xscale() == "log"
+    assert single.axes[0].get_yscale() == "log"
+    np.testing.assert_allclose(single.axes[0].get_xlim(), fig.axes[0].get_xlim())
+    assert not any(r"\chi^2_\nu" in text.get_text() for text in single.axes[0].texts)
+
 
 def test_median_effective_variance_matches_nebular_and_lyman_terms():
     filters = [

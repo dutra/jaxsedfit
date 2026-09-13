@@ -2326,6 +2326,7 @@ class JAXSEDFit:
         show: bool = False,
         annotate_band_names: bool = True,
         title: str | None = None,
+        plot_residual: bool = True,
     ):
         """Plot the fitted SED using the package plotting helper.
 
@@ -2342,6 +2343,8 @@ class JAXSEDFit:
             If True, label observed photometric points with their filter names.
         title : str, optional
             Optional title for the SED panel.
+        plot_residual : bool, optional
+            If True, draw the standardized photometric residual panel.
 
         Returns
         -------
@@ -2357,6 +2360,7 @@ class JAXSEDFit:
             show=show,
             annotate_band_names=annotate_band_names,
             title=title,
+            plot_residual=plot_residual,
         )
 
     def plot_corner(
