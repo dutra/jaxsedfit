@@ -631,6 +631,7 @@ def plot_fit_sed(
     annotate_band_names: bool = True,
     title: str | None = None,
     plot_residual: bool = True,
+    rest_frame: bool = False,
 ):
     """Render a component SED plot for a fitted jaxsedfit object.
 
@@ -650,11 +651,25 @@ def plot_fit_sed(
         Optional title for the SED panel.
     plot_residual : bool, optional
         If True, draw the standardized photometric residual panel.
+    rest_frame : bool, optional
+        If True, divide plotted wavelengths by one plus the posterior median
+        redshift (or the configured redshift). Flux density remains in observed mJy.
     """
     pred = fitter.predict(posterior=posterior)
+    wavelength_factor = 1.0
+    if rest_frame:
+        redshift = (
+            float(np.median(np.asarray(pred["redshift_fit"], dtype=float)))
+            if "redshift_fit" in pred
+            else float(fitter.config.observation.redshift)
+        )
+        if not np.isfinite(redshift) or redshift <= -1.0:
+            raise ValueError("Rest-frame plotting requires a finite redshift greater than -1.")
+        wavelength_factor = 1.0 / (1.0 + redshift)
     obs_wave = _median_site(pred, "obs_wave")
-    x_min = min(1.0e2, float(np.nanmin(obs_wave)))
-    x_max = max(1.0e6, float(np.nanmax(obs_wave)))
+    plot_wave = obs_wave * wavelength_factor
+    x_min = min(1.0e2, float(np.nanmin(obs_wave))) * wavelength_factor
+    x_max = max(1.0e6, float(np.nanmax(obs_wave))) * wavelength_factor
     model_flux = _median_site(pred, "pred_fluxes")
     phot_wave = np.asarray([flt.effective_wavelength for flt in fitter.context.filters], dtype=float)
     obs_flux = np.asarray(
@@ -665,6 +680,7 @@ def plot_fit_sed(
         getattr(fitter.context, "errors", fitter.config.photometry.errors),
         dtype=float,
     )
+    phot_wave = phot_wave * wavelength_factor
     labels = list(fitter.config.photometry.filter_names)
     plotted_components: list[np.ndarray] = []
     legend_labels_seen: set[str] = set()
@@ -725,7 +741,7 @@ def plot_fit_sed(
             finite_band = np.isfinite(lo) & np.isfinite(hi) & (hi > 0.0)
             if np.any(finite_band):
                 ax_sed.fill_between(
-                    obs_wave,
+                    plot_wave,
                     np.where(finite_band, np.clip(lo, 1e-300, None), np.nan),
                     np.where(finite_band, np.clip(hi, 1e-300, None), np.nan),
                     color=color,
@@ -738,15 +754,15 @@ def plot_fit_sed(
                 legend_labels_seen.add(label)
             primary_key = keys[0]
             if primary_key == "total_obs_sed":
-                ax_sed.plot(obs_wave, component, color=color, lw=max(lw - 0.2, 1.4), alpha=0.65, label=plot_label, zorder=1)
+                ax_sed.plot(plot_wave, component, color=color, lw=max(lw - 0.2, 1.4), alpha=0.65, label=plot_label, zorder=1)
             elif primary_key == "host_obs_sed":
-                ax_sed.plot(obs_wave, component, color=color, lw=max(lw, 2.3), ls="--", alpha=0.95, label=plot_label, zorder=4)
+                ax_sed.plot(plot_wave, component, color=color, lw=max(lw, 2.3), ls="--", alpha=0.95, label=plot_label, zorder=4)
             elif primary_key == "dust_obs_sed":
-                ax_sed.plot(obs_wave, component, color=color, lw=max(lw, 2.1), ls=(0, (4, 2)), alpha=0.95, label=plot_label, zorder=4)
+                ax_sed.plot(plot_wave, component, color=color, lw=max(lw, 2.1), ls=(0, (4, 2)), alpha=0.95, label=plot_label, zorder=4)
             elif primary_key == "agn_obs_sed":
-                ax_sed.plot(obs_wave, component, color=color, lw=max(lw, 2.2), ls="-.", alpha=0.95, label=plot_label, zorder=4)
+                ax_sed.plot(plot_wave, component, color=color, lw=max(lw, 2.2), ls="-.", alpha=0.95, label=plot_label, zorder=4)
             else:
-                ax_sed.plot(obs_wave, component, color=color, lw=max(lw, 2.0), ls=":", alpha=0.95, label=plot_label, zorder=3)
+                ax_sed.plot(plot_wave, component, color=color, lw=max(lw, 2.0), ls=":", alpha=0.95, label=plot_label, zorder=3)
 
         if "agn_lines_local_obs_wave" in pred and "agn_lines_local_obs_sed" in pred:
             local_wave = _median_site(pred, "agn_lines_local_obs_wave")
@@ -760,7 +776,7 @@ def plot_fit_sed(
             if np.any(finite):
                 plotted_components.append(local_lines)
                 ax_sed.plot(
-                    np.where(np.isfinite(finite_wave), finite_wave, np.nan),
+                    np.where(np.isfinite(finite_wave), finite_wave, np.nan) * wavelength_factor,
                     np.where(finite, finite_lines, np.nan),
                     color="#d53f8c",
                     lw=1.4,
@@ -780,7 +796,7 @@ def plot_fit_sed(
                 if plot_label != "_nolegend_":
                     legend_labels_seen.add("Nebular emission")
                 ax_sed.plot(
-                    obs_wave,
+                    plot_wave,
                     continuum_component,
                     color="#319795",
                     lw=2.0,
@@ -807,7 +823,7 @@ def plot_fit_sed(
             if np.any(finite):
                 plotted_components.append(local_component)
                 ax_sed.plot(
-                    local_wave_plot,
+                    local_wave_plot * wavelength_factor,
                     local_component_plot,
                     color="#319795",
                     lw=1.4,
@@ -825,7 +841,7 @@ def plot_fit_sed(
                 if plot_label != "_nolegend_":
                     legend_labels_seen.add("Nebular emission")
                 ax_sed.plot(
-                    obs_wave,
+                    plot_wave,
                     component,
                     color="#319795",
                     lw=2.0,
@@ -846,7 +862,7 @@ def plot_fit_sed(
             if np.any(finite):
                 plotted_components.append(local_total)
                 ax_sed.plot(
-                    local_wave_plot,
+                    local_wave_plot * wavelength_factor,
                     local_total_plot,
                     color="#000000",
                     lw=1.5,
@@ -867,7 +883,7 @@ def plot_fit_sed(
             if np.any(finite):
                 plotted_components.append(local_total)
                 ax_sed.plot(
-                    np.where(np.isfinite(finite_wave), finite_wave, np.nan),
+                    np.where(np.isfinite(finite_wave), finite_wave, np.nan) * wavelength_factor,
                     np.where(finite, finite_total, np.nan),
                     color="#000000",
                     lw=1.5,
@@ -912,7 +928,7 @@ def plot_fit_sed(
                 scale = scale if np.isfinite(scale) and scale > 0.0 else 1.0
                 corrected_flux = spec_flux[selected] / scale
                 ax_sed.plot(
-                    spec_wave[selected][order],
+                    spec_wave[selected][order] * wavelength_factor,
                     corrected_flux[order],
                     color="#c53030",
                     lw=0.8,
@@ -1005,7 +1021,8 @@ def plot_fit_sed(
             ax_sed.set_title(str(title))
         if ax_resid is not None:
             ax_resid.set_ylabel(_STANDARDIZED_RESIDUAL_LABEL)
-        (ax_resid if ax_resid is not None else ax_sed).set_xlabel("Observed-frame wavelength (Å)")
+        wavelength_label = "Rest-frame wavelength (Å)" if rest_frame else "Observed-frame wavelength (Å)"
+        (ax_resid if ax_resid is not None else ax_sed).set_xlabel(wavelength_label)
         ax_sed.legend(loc="lower right", fontsize=9, ncol=2)
 
         finite_flux_parts = [np.asarray(obs_flux, dtype=float), np.asarray(model_flux, dtype=float)]
