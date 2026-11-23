@@ -8,6 +8,7 @@ products, and saves, loads and plots fits.
 from __future__ import annotations
 
 import gc
+import warnings
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable, Iterable, Mapping
@@ -39,6 +40,7 @@ from numpyro.infer.util import initialize_model
 from numpyro.infer.reparam import Reparam
 from numpyro.diagnostics import print_summary as print_diagnostics_summary
 
+from . import _xla_threads
 from .approximate import gaussian_vi, laplace_draws, latent_sites, site_transforms
 from .config import FitConfig, fit_config_from_mapping, serialize_config
 from .inference import (
@@ -324,6 +326,33 @@ def _use_callback_gradient(kernel, rng_key, init_strategy):
         kinetic_fn=kernel._kinetic_fn,
         algo=kernel._algo,
     )
+
+
+def _use_callback_gradient_if_safe(kernel, rng_key, init_strategy, num_chains):
+    """Apply ``_use_callback_gradient`` if XLA's CPU pool cannot deadlock on it.
+
+    Each callback that is running blocks one thread of XLA's CPU pool (see
+    ``_xla_threads``), so the pool needs one more thread than the callbacks that can run
+    at once. Otherwise warn and leave ``kernel`` compiling the gradient inside NUTS.
+    Returns whether the callback is used.
+    """
+    # Assumes NumPyro's default chain_method="parallel": chains run in parallel (one
+    # callback running per chain) only when there is a CPU device per chain; otherwise
+    # NumPyro runs them one after another and one callback runs at a time.
+    parallel_chains = num_chains if 1 < num_chains <= jax.local_device_count() else 1
+    if _xla_threads.callback_is_safe(parallel_chains):
+        _use_callback_gradient(kernel, rng_key, init_strategy)
+        return True
+    warnings.warn(
+        "XLA's CPU thread pool is too small for the NUTS gradient callback "
+        f"({parallel_chains} parallel chain(s) need {parallel_chains + 1} threads), "
+        "which would deadlock; compiling the gradient inside NUTS instead. To keep the "
+        "callback, import jaxsedfit before JAX runs anything, or set PJRT_NPROC to at least "
+        f"{parallel_chains + 1} before JAX starts.",
+        RuntimeWarning,
+        stacklevel=3,
+    )
+    return False
 
 
 def _defer_nuts_postprocessing(kernel):
@@ -1876,7 +1905,7 @@ class JAXSEDFit:
         kernel = NUTS(nuts_model, init_strategy=init_strategy, **kernel_options)
         constrain_fn = _defer_nuts_postprocessing(kernel)
         if bool(getattr(inference, "nuts_gradient_callback", False)):
-            _use_callback_gradient(kernel, rng_key, init_strategy)
+            _use_callback_gradient_if_safe(kernel, rng_key, init_strategy, num_chains)
         mcmc = MCMC(
             kernel,
             num_warmup=num_warmup,
