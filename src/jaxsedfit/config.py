@@ -356,6 +356,21 @@ class AGNConfig:
     # Mg II, where fitted "narrow" components absorb broad-line cores and
     # continuum-EW anchors already include them); "none" drops all.
     narrow_line_extrapolation: str = "template"
+    # Luminosity anchor for broad lines outside the spectral coverage, which
+    # are still needed by the photometry. "fitted_lines" scales the fixed-ratio
+    # broad (and narrow) templates to the fitted covered lines; "continuum_ew"
+    # ties each broad and narrow line to the fitted AGN continuum (disc +
+    # torus) through QSOGEN rest equivalent widths (see
+    # jaxsedfit.line_extrapolation). Fe II is unaffected.
+    line_extrapolation_anchor: str = "fitted_lines"
+    # Fixed QSOGEN emline_type for "continuum_ew"; None follows QSOGEN's
+    # luminosity (Baldwin-effect) relation evaluated on the fitted disc.
+    line_extrapolation_emline_type: float | None = None
+    # Which out-of-coverage lines "continuum_ew" anchors: "all" (default, both
+    # sides of the spectrum) or "blueward" (only lines blueward of the
+    # spectrum; redward lines keep the fitted-line anchor, e.g. to rest on a
+    # fitted H-beta).
+    line_extrapolation_ew_scope: str = "all"
     # Rest-frame range [A] that fixes the tied-line set instead of each spectrum's
     # coverage; lines the spectra do not cover are then masked (zero amplitude), so
     # objects at different redshifts share one model structure (see fit_batch).
@@ -406,6 +421,7 @@ class AGNConfig:
             raise ValueError("AGNConfig.feature_grid_size must be at least 256.")
         self.feature_grid_size = int(self.feature_grid_size)
         self._normalize_narrow_line_extrapolation()
+        self._normalize_line_extrapolation()
         if self.line_activation_rest is not None:
             lo, hi = (float(v) for v in self.line_activation_rest)
             if not (np.isfinite(lo) and np.isfinite(hi) and 0.0 < lo < hi):
@@ -420,8 +436,29 @@ class AGNConfig:
             )
         self.narrow_line_extrapolation = mode
 
+    def _normalize_line_extrapolation(self) -> None:
+        """Validate and canonicalize the out-of-coverage broad-line anchor."""
+        from .line_extrapolation import (
+            QSOGEN_EMLINE_TYPE_MAX,
+            QSOGEN_EMLINE_TYPE_MIN,
+            normalize_line_extrapolation_anchor,
+            normalize_line_extrapolation_ew_scope,
+        )
+
+        self.line_extrapolation_anchor = normalize_line_extrapolation_anchor(self.line_extrapolation_anchor)
+        self.line_extrapolation_ew_scope = normalize_line_extrapolation_ew_scope(self.line_extrapolation_ew_scope)
+        if self.line_extrapolation_emline_type is not None:
+            value = float(self.line_extrapolation_emline_type)
+            if not (np.isfinite(value) and QSOGEN_EMLINE_TYPE_MIN <= value <= QSOGEN_EMLINE_TYPE_MAX):
+                raise ValueError(
+                    "AGNConfig.line_extrapolation_emline_type must be None or within "
+                    f"[{QSOGEN_EMLINE_TYPE_MIN:g}, {QSOGEN_EMLINE_TYPE_MAX:g}]."
+                )
+            self.line_extrapolation_emline_type = value
+
     def validate(self) -> None:
         """Validate inline template units and array shapes."""
+        self._normalize_line_extrapolation()
         self._normalize_narrow_line_extrapolation()
         allowed_units = {"angstrom", "angstroms", "aa", "a", "nm", "nanometer", "nanometers", "um", "micron", "microns"}
         for label, template in (("feii_template", self.feii_template), ("emission_line_template", self.emission_line_template)):

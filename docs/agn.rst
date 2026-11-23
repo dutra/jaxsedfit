@@ -45,6 +45,59 @@ In joint fits, the lines covered by the spectrum use the detailed spectral line
 model; the SED-scale corrections still apply to filters outside the spectral
 coverage.
 
+Lines outside the spectral coverage
+-----------------------------------
+
+The photometry still needs the lines the spectrum does not cover (for example
+Ly-alpha when the fit starts at rest 1250 Å, or H-alpha redward of an optical
+spectrum). ``line_extrapolation_anchor`` chooses how their luminosities are set:
+
+``"fitted_lines"`` (default)
+   The fixed-ratio broad template is scaled to the summed fitted luminosity of
+   the covered broad lines, and the Seyfert-2 (or LINER) narrow template to the
+   covered narrow lines. The anchor therefore depends on which lines the
+   spectrum happens to cover.
+
+``"continuum_ew"``
+   Each uncovered broad and narrow line gets :math:`L = {\rm EW} \times
+   L_\lambda^{\rm AGN}(\lambda_{\rm line})`, with the unattenuated fitted AGN
+   continuum (disk plus torus dust emission, the counterpart of QSOGEN's power
+   law plus hot-dust blackbody against which its equivalent widths are
+   defined) and rest equivalent widths from the QSOGEN emission-line template
+   (Temple, Hewett & Banerji 2021), tabulated in
+   ``resources/templates/qsogen_line_ew.txt`` by
+   ``tools/generate_qsogen_line_ew.py``. Broad-line strengths follow QSOGEN's
+   luminosity relation, :math:`{\rm emline\_type} = 0.183\,[M_i(z{=}2) + 27]`,
+   with :math:`M_i(z{=}2)` computed from the disk :math:`L_\nu(2500\,\text{Å})`
+   (Richards et al. 2006, eq. 4); ``line_extrapolation_emline_type`` fixes it
+   instead. Broad lines without a QSOGEN counterpart keep their template ratio
+   to the anchored lines. Narrow lines use QSOGEN's narrow-line template
+   ([O III] 5007 about 13 Å at typical luminosity); QSOGEN has no narrow UV or
+   near-IR lines (its broad Ly-alpha already includes any core), so those get
+   zero. Narrow lines remain subject to host capture. The split between narrow
+   H-alpha (9.0 Å) and [N II] 6583 (3.0 Å) is an artefact of QSOGEN's 10.7 Å
+   sampling there; their total (about 12-13 Å) is the meaningful number.
+
+   The torus is the counterpart of QSOGEN's hot-dust blackbody, but at the
+   catalog-median parameters of a large SDSS sample its hot dust at 1-2 µm is
+   much weaker than QSOGEN's, while the disk is brighter there relative to
+   5100 Å (about 1.8x at 1.08 µm, i.e. flatter in :math:`L_\lambda`). Relative
+   to QSOGEN the near-IR lines therefore come out about 1.5x high for He I
+   10830 and about 0.5x low for Pa-alpha; this depends on each fit.
+
+   ``line_extrapolation_ew_scope`` selects which uncovered lines use this
+   anchor: ``"all"`` (default) lines on both sides of the spectrum;
+   ``"blueward"`` only lines blueward of the spectrum, so lines redward keep
+   the fitted-line anchor (which then rests on fitted lines such as H-beta that
+   the spectrum covers).
+
+Both anchors return intrinsic luminosities that are attenuated, IGM-absorbed
+and projected through the filters identically. The Fe II extrapolation always
+uses the fitted anchor. The anchor changes no sampled parameter, so it can also
+be changed on a saved posterior with ``JAXSEDFit.load(path,
+config_transform=...)``; the draws were then sampled with the anchor stored in
+the bundle.
+
 Accretion disk and torus
 ------------------------
 
