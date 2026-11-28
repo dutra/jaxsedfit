@@ -174,3 +174,23 @@ def test_empirical_uv_option_changes_only_the_feii_component(monkeypatch):
         value(tr_empirical, "spectral_feii_model")[optical], value(tr_default, "spectral_feii_model")[optical], rtol=2e-2,
         atol=1e-3 * np.max(value(tr_default, "spectral_feii_model")),
     )
+
+
+def test_empirical_uv_2200_variant_changes_only_2200_to_3500():
+    """The 2200 variant equals the theoretical template below 2100 A and above 3500 A and the full
+    empirical-UV template between 2200 and 3300 A."""
+    from jaxsedfit import preload
+
+    bv_w, bv_l = preload._bruhweiler_verner_feii_template()
+    w_full, l_full = preload._bruhweiler_verner_with_empirical_uv(bv_w, bv_l)
+    w_cut, l_cut = preload._bruhweiler_verner_with_empirical_uv(
+        bv_w, bv_l, blue_taper=preload.FEII_EMPIRICAL_UV_BLUE_TAPER_A
+    )
+    np.testing.assert_array_equal(w_full, w_cut)
+    theo = np.interp(w_cut, bv_w, np.clip(bv_l, 0.0, None), left=0.0, right=0.0)
+    blue, mid, red = w_cut < 2100.0, (w_cut > 2200.0) & (w_cut < 3300.0), w_cut > 3500.0
+    np.testing.assert_allclose(l_cut[blue], theo[blue], atol=1e-12)
+    np.testing.assert_allclose(l_cut[mid], l_full[mid], rtol=1e-12)
+    np.testing.assert_allclose(l_cut[red], theo[red], atol=1e-12)
+    assert float(np.sum(l_cut[w_cut < 1990.0])) == 0.0
+    assert float(np.sum(l_full[w_full < 1990.0])) > 0.0

@@ -365,6 +365,11 @@ C_KMS = 299792.458
 # ``_bruhweiler_verner_with_empirical_uv`` for the join and the normalization.
 FEII_EMPIRICAL_UV_TEMPLATE_NAME = "BruhweilerVerner08+EmpiricalUV"
 FEII_EMPIRICAL_UV_RESOURCE = "resources/templates/fe_uv_VW01_S07_T06.txt"
+# Variant that changes the template only between about 2200 and 3500 A: blueward of a
+# second raised-cosine hand-over the theoretical template is kept (it has no Fe II
+# below 1993 A), so no Fe II emission is added at 1250-2000 A.
+FEII_EMPIRICAL_UV_2200_TEMPLATE_NAME = "BruhweilerVerner08+EmpiricalUV2200"
+FEII_EMPIRICAL_UV_BLUE_TAPER_A = (2100.0, 2200.0)
 # Raised-cosine hand-over from the empirical UV to the theoretical template [A, rest].
 FEII_EMPIRICAL_UV_TAPER_A = (3300.0, 3500.0)
 # Window over which the empirical UV part is scaled to the theoretical UV flux [A, rest].
@@ -774,7 +779,7 @@ def _bruhweiler_verner_feii_template() -> tuple[np.ndarray, np.ndarray]:
 
 
 def _bruhweiler_verner_with_empirical_uv(
-    bv_wave: np.ndarray, bv_lumin: np.ndarray
+    bv_wave: np.ndarray, bv_lumin: np.ndarray, blue_taper: tuple[float, float] | None = None
 ) -> tuple[np.ndarray, np.ndarray]:
     """Replace the UV part of the Bruhweiler & Verner template by the empirical one.
 
@@ -812,6 +817,10 @@ def _bruhweiler_verner_with_empirical_uv(
     taper_lo, taper_hi = FEII_EMPIRICAL_UV_TAPER_A
     x = np.clip((wave - taper_lo) / (taper_hi - taper_lo), 0.0, 1.0)
     weight = 0.5 * (1.0 + np.cos(np.pi * x))
+    if blue_taper is not None:
+        # keep the theoretical template blueward of the blue hand-over
+        xb = np.clip((wave - blue_taper[0]) / (blue_taper[1] - blue_taper[0]), 0.0, 1.0)
+        weight = weight * 0.5 * (1.0 - np.cos(np.pi * xb))
     return wave, np.asarray(weight * scale * empirical + (1.0 - weight) * theoretical, dtype=float)
 
 
@@ -893,10 +902,14 @@ def _load_templates(cfg: FitConfig) -> LoadedTemplates:
     if feii.wave is not None:
         feii_wave = _inline_wavelengths_to_angstrom(feii.wave, feii.wavelength_unit, "agn.feii_template")
         feii_lumin = np.asarray(feii.lumin, dtype=float)
-    elif feii.name in ("BruhweilerVerner08", FEII_EMPIRICAL_UV_TEMPLATE_NAME):
+    elif feii.name in ("BruhweilerVerner08", FEII_EMPIRICAL_UV_TEMPLATE_NAME, FEII_EMPIRICAL_UV_2200_TEMPLATE_NAME):
         feii_wave, feii_lumin = _bruhweiler_verner_feii_template()
         if feii.name == FEII_EMPIRICAL_UV_TEMPLATE_NAME:
             feii_wave, feii_lumin = _bruhweiler_verner_with_empirical_uv(feii_wave, feii_lumin)
+        elif feii.name == FEII_EMPIRICAL_UV_2200_TEMPLATE_NAME:
+            feii_wave, feii_lumin = _bruhweiler_verner_with_empirical_uv(
+                feii_wave, feii_lumin, blue_taper=FEII_EMPIRICAL_UV_BLUE_TAPER_A
+            )
     else:
         raise ValueError(
             f"Unsupported Fe II template {feii.name!r}. Provide inline agn.feii_template "
