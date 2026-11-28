@@ -359,6 +359,17 @@ _FIXED_LOCAL_NEBULAR_LINE_PROJECTION_CACHE: dict[tuple[Any, ...], tuple[np.ndarr
 _FILTER_MAX_OUTSIDE_FRACTION = 0.01
 C_KMS = 299792.458
 
+# Opt-in Fe II template (``FeIITemplate(name=FEII_EMPIRICAL_UV_TEMPLATE_NAME)``):
+# the Bruhweiler & Verner (2008) template with its UV part replaced by the
+# empirical UV template of PyQSOFit / Shen et al. (2011). See
+# ``_bruhweiler_verner_with_empirical_uv`` for the join and the normalization.
+FEII_EMPIRICAL_UV_TEMPLATE_NAME = "BruhweilerVerner08+EmpiricalUV"
+FEII_EMPIRICAL_UV_RESOURCE = "resources/templates/fe_uv_VW01_S07_T06.txt"
+# Raised-cosine hand-over from the empirical UV to the theoretical template [A, rest].
+FEII_EMPIRICAL_UV_TAPER_A = (3300.0, 3500.0)
+# Window over which the empirical UV part is scaled to the theoretical UV flux [A, rest].
+FEII_EMPIRICAL_UV_MATCH_A = (2200.0, 3090.0)
+
 
 # ln host capture scale (arcsec) grid of ``ModelContext.spec_host_capture_table``.
 SPEC_CAPTURE_LOG_R_GRID = np.linspace(np.log(1.0e-3), np.log(1.0e3), 241)
@@ -745,6 +756,65 @@ def _fix_line_table_amplitudes(cfg: FitConfig, prior_config: Mapping[str, Any]):
     return prior_config, amp_groups
 
 
+def _bruhweiler_verner_feii_template() -> tuple[np.ndarray, np.ndarray]:
+    """Return the vendored Bruhweiler & Verner (2008) Fe II template.
+
+    Rest wavelength [Angstrom] and f_lambda shape with unit value at 4575 A.
+    """
+    feii_path = _package_resource_path("resources/templates/Fe_d11-m20-20.5.txt")
+    feii_data = np.loadtxt(feii_path)
+    wave_observed = np.asarray(feii_data[:, 0], dtype=float)
+    lnu = np.asarray(feii_data[:, 1], dtype=float)
+    z_shift = 4593.4 / 4575.0 - 1.0
+    feii_wave = wave_observed / (1.0 + z_shift)
+    llam = lnu * 2.99792458e18 / np.clip(wave_observed * wave_observed, 1e-30, None)
+    norm = float(llam[int(np.argmin(np.abs(feii_wave - 4575.0)))])
+    feii_lumin = np.asarray(llam / max(norm, 1e-30), dtype=float)
+    return feii_wave, feii_lumin
+
+
+def _bruhweiler_verner_with_empirical_uv(
+    bv_wave: np.ndarray, bv_lumin: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """Replace the UV part of the Bruhweiler & Verner template by the empirical one.
+
+    The empirical UV template (``fe_uv_VW01_S07_T06.txt``, PyQSOFit; Vestergaard
+    & Wilkes 2001 at 1000-2200 A, Salviander et al. 2007 at 2200-3090 A,
+    Tsuzuki et al. 2006 at 3090-3500 A, f_lambda, zero below 1250 A, ends at
+    3500 A) is used blueward of the hand-over, the theoretical template
+    redward of it. The hand-over is a raised cosine over
+    ``FEII_EMPIRICAL_UV_TAPER_A``: weight ``w`` falls from 1 to 0, the result is
+    ``w * s * empirical + (1 - w) * theoretical``, so it is continuous. The
+    scale ``s`` gives the empirical part the theoretical template's f_lambda
+    flux over ``FEII_EMPIRICAL_UV_MATCH_A``. The optical part (above 3500 A,
+    including the 4575 A normalization pivot) is the theoretical template, and
+    the hand-over lies blueward of the 3600 A UV/optical split, so the Fe II
+    norm and the optical-to-UV ratio keep their meaning: at ratio 1 the UV Fe II
+    flux over 2200-3090 A is that of the theoretical template.
+
+    The result lives on the empirical template's log-uniform grid (103.6 km/s
+    pixels) extended redward to the end of the theoretical template, which is
+    linearly interpolated onto it.
+    """
+    data = np.loadtxt(_package_resource_path(FEII_EMPIRICAL_UV_RESOURCE), comments="#")
+    uv_wave = 10.0 ** np.asarray(data[:, 0], dtype=float)
+    uv_flux = np.clip(np.asarray(data[:, 1], dtype=float), 0.0, None)
+    order = np.argsort(uv_wave)
+    uv_wave, uv_flux = uv_wave[order], uv_flux[order]
+    dln = float(np.median(np.diff(np.log(uv_wave))))
+    n_red = int(np.floor(np.log(float(bv_wave[-1]) / float(uv_wave[-1])) / dln))
+    wave = np.concatenate([uv_wave, uv_wave[-1] * np.exp(dln * np.arange(1, n_red + 1))])
+    theoretical = np.interp(wave, bv_wave, np.clip(bv_lumin, 0.0, None), left=0.0, right=0.0)
+    empirical = np.interp(wave, uv_wave, uv_flux, left=0.0, right=0.0)
+    lo, hi = FEII_EMPIRICAL_UV_MATCH_A
+    window = (wave >= lo) & (wave <= hi)
+    scale = np.trapezoid(theoretical[window], wave[window]) / np.trapezoid(empirical[window], wave[window])
+    taper_lo, taper_hi = FEII_EMPIRICAL_UV_TAPER_A
+    x = np.clip((wave - taper_lo) / (taper_hi - taper_lo), 0.0, 1.0)
+    weight = 0.5 * (1.0 + np.cos(np.pi * x))
+    return wave, np.asarray(weight * scale * empirical + (1.0 - weight) * theoretical, dtype=float)
+
+
 def _load_templates(cfg: FitConfig) -> LoadedTemplates:
     """Load AGN and host-dust template arrays required by the current config.
 
@@ -823,20 +893,15 @@ def _load_templates(cfg: FitConfig) -> LoadedTemplates:
     if feii.wave is not None:
         feii_wave = _inline_wavelengths_to_angstrom(feii.wave, feii.wavelength_unit, "agn.feii_template")
         feii_lumin = np.asarray(feii.lumin, dtype=float)
-    elif feii.name == "BruhweilerVerner08":
-        feii_path = _package_resource_path("resources/templates/Fe_d11-m20-20.5.txt")
-        feii_data = np.loadtxt(feii_path)
-        wave_observed = np.asarray(feii_data[:, 0], dtype=float)
-        lnu = np.asarray(feii_data[:, 1], dtype=float)
-        z_shift = 4593.4 / 4575.0 - 1.0
-        feii_wave = wave_observed / (1.0 + z_shift)
-        llam = lnu * 2.99792458e18 / np.clip(wave_observed * wave_observed, 1e-30, None)
-        norm = float(llam[int(np.argmin(np.abs(feii_wave - 4575.0)))])
-        feii_lumin = np.asarray(llam / max(norm, 1e-30), dtype=float)
+    elif feii.name in ("BruhweilerVerner08", FEII_EMPIRICAL_UV_TEMPLATE_NAME):
+        feii_wave, feii_lumin = _bruhweiler_verner_feii_template()
+        if feii.name == FEII_EMPIRICAL_UV_TEMPLATE_NAME:
+            feii_wave, feii_lumin = _bruhweiler_verner_with_empirical_uv(feii_wave, feii_lumin)
     else:
         raise ValueError(
             f"Unsupported Fe II template {feii.name!r}. Provide inline agn.feii_template "
-            "wave/lumin arrays or use the vendored BruhweilerVerner08 template."
+            "wave/lumin arrays or use the vendored BruhweilerVerner08 or "
+            f"{FEII_EMPIRICAL_UV_TEMPLATE_NAME} template."
         )
     if em.wave is not None:
         line_wave = _inline_wavelengths_to_angstrom(em.wave, em.wavelength_unit, "agn.emission_line_template")

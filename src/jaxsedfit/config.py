@@ -183,6 +183,14 @@ class FeIITemplate:
 
     ``wavelength_unit`` is required for inline ``wave`` values. Supported
     values are ``angstrom``, ``nm``, and ``micron`` (plus common aliases).
+
+    Vendored templates (used when ``wave`` is None): ``"BruhweilerVerner08"``
+    (default, the theoretical Bruhweiler & Verner 2008 template) and
+    ``"BruhweilerVerner08+EmpiricalUV"`` (opt-in: the same template with its UV
+    part below 3300-3500 A replaced by the empirical Vestergaard & Wilkes 2001 /
+    Salviander et al. 2007 / Tsuzuki et al. 2006 template of PyQSOFit, scaled
+    to the same UV flux over 2200-3090 A; see
+    ``preload._bruhweiler_verner_with_empirical_uv``).
     """
     name: str = "BruhweilerVerner08"
     wave: Sequence[float] | None = None
