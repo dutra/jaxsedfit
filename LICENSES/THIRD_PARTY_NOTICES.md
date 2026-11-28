@@ -53,3 +53,12 @@ The following bundled resource categories in `src/jaxsedfit/resources/` originat
 - `resources/templates/emission_line_table.formatted`
 
 See the README files in those resource directories for per-directory provenance notes.
+
+## Empirical UV Fe II template (PyQSOFit / jaxqsofit)
+
+`resources/templates/fe_uv_VW01_S07_T06.txt` (used only by the opt-in
+`FeIITemplate(name="BruhweilerVerner08+EmpiricalUV")`) is the UV Fe II template
+distributed with PyQSOFit (Vestergaard & Wilkes 2001; Salviander et al. 2007;
+Tsuzuki et al. 2006), copied unchanged from jaxqsofit
+(`src/jaxqsofit/data/fe_uv.txt`). Licence terms of this file are not stated in
+jaxqsofit and were not verified; check before redistribution.
