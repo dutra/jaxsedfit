@@ -326,7 +326,8 @@ marked "fixed" is not fitted unless you give it a prior.
    * - ``narrow_line_width_kms``
      - Log-normal around 500 km/s, width 0.3 (ln), truncated to 100–1500 km/s
    * - ``feii_norm``
-     - Log-uniform from 0.63 to 31.6, relative to the broad lines
+     - Log-uniform from 0.63 to 31.6, relative to the broad lines (the template's
+       mean over 4434–4684 Å is 0.274125, see :doc:`agn`)
    * - ``feii_fwhm``, ``feii_shift`` (``fit_feii_broadening``)
      - Log-normal around 3000 km/s with width 0.3 (ln), and Normal(0, 0.01) in v/c;
        otherwise fixed at 3000 km/s and 0

@@ -39,6 +39,9 @@ resolves on the AGN configuration (see :doc:`agn`):
    cfg.agn.fit_balmer_continuum = True
    cfg.agn.tied_lines = True
 
+The spectral Fe II uses the jaxqsofit UV + optical Fe II template, the same
+template as the SED-scale Fe II (see the Fe II template section of :doc:`agn`).
+
 For the host, fit the stellar kinematics and use an SFH with a recent burst (see
 :doc:`host`):
 

@@ -45,6 +45,34 @@ In joint fits, the lines covered by the spectrum use the detailed spectral line
 model; the SED-scale corrections still apply to filters outside the spectral
 coverage.
 
+Fe II template
+--------------
+
+Every fit (photometry only, spectrum only, and joint) uses one Fe II template,
+the composite that jaxqsofit and PyQSOFit use: the UV template of Vestergaard &
+Wilkes (2001) below 2200 Å, Salviander et al. (2007) at 2200–3090 Å
+(extrapolated under Mg II) and Tsuzuki et al. (2006) at 3090–3500 Å, and the
+optical template of Boroson & Green (1992) at 3686–7484 Å. Both files give
+rest-frame f\ :sub:`λ` on 103.6 km/s pixels. As in jaxqsofit, negative values
+are set to zero, each piece is scaled so its 99th-percentile value is 1, and
+the template is zero between the two pieces. The SED-scale Fe II and the
+spectral Fe II of joint fits use the same template.
+
+Both pieces share one amplitude, one width and one velocity shift. The optical
+piece (redward of 3600 Å rest, inside the gap between the pieces) is
+multiplied by ``exp(log_feii_op_over_uv)`` (``spectral_feii_log_op_over_uv``
+for the spectral Fe II); at zero the UV-to-optical ratio is the jaxqsofit one.
+One common factor scales both pieces so the mean template value over the
+optical Fe II band, 4434–4684 Å rest, is 0.274125, the value of the earlier
+default template. An Fe II amplitude therefore sets the same optical Fe II
+strength as before, and the amplitude priors are unchanged.
+
+``agn.feii_template`` can instead carry inline ``wave``/``lumin`` arrays (with
+``wavelength_unit``); ``name`` is then only a label. The earlier built-in
+template, ``BruhweilerVerner08`` (Bruhweiler & Verner 2008, from GRAHSP), was
+removed: naming it raises an error, and results saved with it need an earlier
+jaxsedfit release.
+
 Accretion disk and torus
 ------------------------
 
