@@ -49,7 +49,15 @@ The following bundled resource categories in `src/jaxsedfit/resources/` originat
 
 - `resources/filters/filter_registry.txt`
 - `resources/filters/*`
-- `resources/templates/Fe_d11-m20-20.5.txt`
 - `resources/templates/emission_line_table.formatted`
 
 See the README files in those resource directories for per-directory provenance notes.
+
+## Fe II template (PyQSOFit / jaxqsofit)
+
+`resources/templates/fe_uv.txt` and `resources/templates/fe_optical.txt` are the
+Fe II templates distributed with PyQSOFit (`src/pyqsofit/`, GPL-3.0) and
+jaxqsofit (`src/jaxqsofit/data/`), copied unchanged: Vestergaard & Wilkes (2001),
+Salviander et al. (2007) and Tsuzuki et al. (2006) in the UV and Boroson & Green
+(1992) in the optical. See `resources/templates/README.md` for hashes and the
+open license question.

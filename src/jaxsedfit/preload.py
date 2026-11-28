@@ -27,7 +27,15 @@ from astropy import units as u
 from dustmaps.sfd import SFDQuery
 import extinction
 
-from .config import EmissionLineTemplate, FeIITemplate, FilterCurve, FitConfig, PhotometryData
+from .config import (
+    FEII_TEMPLATE_NAME,
+    EmissionLineTemplate,
+    FeIITemplate,
+    FilterCurve,
+    FitConfig,
+    PhotometryData,
+    _check_feii_template_name,
+)
 from .filters import (
     _package_resource_path,
     filter_effective_wavelength,
@@ -359,6 +367,16 @@ _SFD_QUERY_CACHE: dict[str, Any] = {}
 _SSP_DATA_CACHE: dict[str, SSPData] = {}
 _FILTER_RESPONSE_CACHE: dict[tuple[Any, ...], list[Any]] = {}
 _TEMPLATE_CACHE: dict[tuple[Any, ...], LoadedTemplates] = {}
+# Rest-frame band of the classical optical Fe II blend (R_FeII band).
+FEII_OPTICAL_BAND_A = (4434.0, 4684.0)
+# Mean template value over FEII_OPTICAL_BAND_A (linear interpolation between
+# pixels). This is the value of the previous default template (Bruhweiler &
+# Verner 2008, unit value at 4575 A), so an Fe II amplitude still sets the
+# same mean optical Fe II f_lambda over that band and the amplitude priors
+# keep their meaning.
+FEII_OPTICAL_BAND_MEAN = 0.274125
+_FEII_OPTICAL_PIECE_RANGE_A = (3686.0, 7484.0)
+_VENDORED_FEII_CACHE: dict[str, tuple[np.ndarray, np.ndarray]] = {}
 _DALE2014_CACHE: dict[str, tuple[np.ndarray, np.ndarray, np.ndarray]] = {}
 # Keyed by the rest-frame grid, which differs for every spectrum (about 35 MB per
 # entry), so only the most recently used grids are kept (dicts keep insertion order).
@@ -946,21 +964,9 @@ def _load_templates(cfg: FitConfig) -> LoadedTemplates:
     if feii.wave is not None:
         feii_wave = _inline_wavelengths_to_angstrom(feii.wave, feii.wavelength_unit, "agn.feii_template")
         feii_lumin = np.asarray(feii.lumin, dtype=float)
-    elif feii.name == "BruhweilerVerner08":
-        feii_path = _package_resource_path("resources/templates/Fe_d11-m20-20.5.txt")
-        feii_data = np.loadtxt(feii_path)
-        wave_observed = np.asarray(feii_data[:, 0], dtype=float)
-        lnu = np.asarray(feii_data[:, 1], dtype=float)
-        z_shift = 4593.4 / 4575.0 - 1.0
-        feii_wave = wave_observed / (1.0 + z_shift)
-        llam = lnu * 2.99792458e18 / np.clip(wave_observed * wave_observed, 1e-30, None)
-        norm = float(llam[int(np.argmin(np.abs(feii_wave - 4575.0)))])
-        feii_lumin = np.asarray(llam / max(norm, 1e-30), dtype=float)
     else:
-        raise ValueError(
-            f"Unsupported Fe II template {feii.name!r}. Provide inline agn.feii_template "
-            "wave/lumin arrays or use the vendored BruhweilerVerner08 template."
-        )
+        _check_feii_template_name(feii.name)
+        feii_wave, feii_lumin = _load_vendored_feii_template()
     if em.wave is not None:
         line_wave = _inline_wavelengths_to_angstrom(em.wave, em.wavelength_unit, "agn.emission_line_template")
         line_blagn = np.asarray(em.lumin_blagn, dtype=float)
@@ -1000,6 +1006,60 @@ def _load_templates(cfg: FitConfig) -> LoadedTemplates:
     )
     _TEMPLATE_CACHE[cache_key] = loaded
     return loaded
+
+
+def _load_vendored_feii_template() -> tuple[np.ndarray, np.ndarray]:
+    """Load the built-in Fe II template: the jaxqsofit UV + optical composite.
+
+    ``fe_uv.txt`` (Vestergaard & Wilkes 2001 below 2200 A, Salviander et al.
+    2007 at 2200-3090 A, Tsuzuki et al. 2006 at 3090-3500 A) and
+    ``fe_optical.txt`` (Boroson & Green 1992) are unchanged copies of the
+    jaxqsofit / PyQSOFit files: log10 rest wavelength [A] and f_lambda. They
+    are treated exactly as jaxqsofit does: negative values clipped, each piece
+    rescaled so its 99th-percentile amplitude is 1, and the optical piece
+    kept at 3686-7484 A. The two pieces are joined on one grid (UV pixels,
+    zero-valued pixels at the UV spacing across the 3500-3686 A gap, optical
+    pixels), so the template has no flux between them and the UV/optical
+    split at FEII_UV_OPTICAL_SPLIT_A (3600 A) falls in the gap. Both pieces
+    are then multiplied by one common factor so the template's mean over
+    FEII_OPTICAL_BAND_A is FEII_OPTICAL_BAND_MEAN. The UV-to-optical ratio is
+    therefore the jaxqsofit one, and the amplitude keeps its optical meaning.
+
+    Returns
+    -------
+    tuple of numpy.ndarray
+        Rest-frame wavelength [A] (increasing) and the relative f_lambda
+        template.
+    """
+    cache_key = "feii::jaxqsofit"
+    cached = _VENDORED_FEII_CACHE.get(cache_key)
+    if cached is not None:
+        return cached[0].copy(), cached[1].copy()
+
+    def _norm99(flux: np.ndarray) -> np.ndarray:
+        flux = np.maximum(np.asarray(flux, dtype=float), 0.0)
+        robust = float(np.nanpercentile(np.abs(flux), 99))
+        return flux / robust if np.isfinite(robust) and robust > 0.0 else flux
+
+    uv = np.loadtxt(_package_resource_path("resources/templates/fe_uv.txt"))
+    op = np.loadtxt(_package_resource_path("resources/templates/fe_optical.txt"))
+    uv_log_wave = np.asarray(uv[:, 0], dtype=float)
+    uv_wave, uv_flux = 10.0**uv_log_wave, _norm99(uv[:, 1])
+    op_wave, op_flux = 10.0 ** np.asarray(op[:, 0], dtype=float), _norm99(op[:, 1])
+    keep = (op_wave > _FEII_OPTICAL_PIECE_RANGE_A[0]) & (op_wave < _FEII_OPTICAL_PIECE_RANGE_A[1])
+    op_wave, op_flux = op_wave[keep], op_flux[keep]
+    step = float(np.median(np.diff(uv_log_wave)))
+    n_gap = int(np.floor((np.log10(op_wave[0]) - uv_log_wave[-1]) / step))
+    gap_wave = 10.0 ** (uv_log_wave[-1] + step * np.arange(1, n_gap + 1))
+    gap_wave = gap_wave[gap_wave < op_wave[0]]
+    wave = np.concatenate([uv_wave, gap_wave, op_wave])
+    flux = np.concatenate([uv_flux, np.zeros_like(gap_wave), op_flux])
+    lo, hi = FEII_OPTICAL_BAND_A
+    band = np.union1d(wave[(wave > lo) & (wave < hi)], [lo, hi])
+    band_mean = float(np.trapezoid(np.interp(band, wave, flux), band) / (hi - lo))
+    flux = flux * (FEII_OPTICAL_BAND_MEAN / band_mean)
+    _VENDORED_FEII_CACHE[cache_key] = (wave, flux)
+    return wave.copy(), flux.copy()
 
 
 def _load_vendored_dale2014_templates() -> tuple[np.ndarray, np.ndarray, np.ndarray]:

@@ -412,7 +412,10 @@ _LINE_SITES = (
 
 def _continuum_minus_disc(tr):
     lines = sum(_site(tr, name) for name in _LINE_SITES)
-    return _site(tr, "agn_fluxes") - lines - _site(tr, "disk_fluxes") - _site(tr, "torus_fluxes")
+    # The native SED Fe II (on here because the spectral Fe II is off) is part of
+    # the AGN flux; the default template has UV Fe II down to 1250 A rest.
+    native_feii = _site(tr, "feii_fluxes")
+    return _site(tr, "agn_fluxes") - lines - native_feii - _site(tr, "disk_fluxes") - _site(tr, "torus_fluxes")
 
 
 def test_agn_continuum_equals_disc_under_host_capture(fake_ssp, monkeypatch):

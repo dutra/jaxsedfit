@@ -156,7 +156,12 @@ def test_shared_amplitude_matches_jaxqsofit_separate_pieces():
         wave, op_wave, scale * op_flux, norm * np.exp(log_ratio), fwhm, shift
     )
     combined, separate = np.asarray(combined), np.asarray(separate)
-    assert np.max(np.abs(combined - separate)) < 2.0e-3 * np.max(separate)
+    # jaxqsofit cuts each broadened piece at the end of its own grid, so it
+    # drops the broadened wings that spill into the 3500-3686 A gap; the
+    # combined template keeps them. Away from the gap the two agree.
+    away = (wave < 3400.0) | (wave > 3800.0)
+    assert np.max(np.abs(combined - separate)[away]) < 2.0e-3 * np.max(separate)
+    assert np.all(combined[~away] >= separate[~away] - 2.0e-3 * np.max(separate))
 
 
 def test_spectral_feii_component_reproduces_the_template_flambda_shape():
@@ -225,7 +230,9 @@ def test_all_three_modes_load_the_jaxqsofit_template(monkeypatch):
 
 def test_native_sed_feii_is_the_template_times_the_amplitude(monkeypatch):
     _, context = _contexts(monkeypatch)["photometry"]
-    tr = _deterministic_trace(context, _fixed_component_data())
+    # Negligible dust, so the plotted (attenuated) component is the intrinsic one.
+    data = {**_fixed_component_data(), "log_ebv_gal": np.array(np.log(1.0e-12)), "log_ebv_agn": np.array(np.log(1.0e-12))}
+    tr = _deterministic_trace(context, data)
     feii = _site(tr, "feii_rest_sed")
     template = np.asarray(context.feii_template_on_rest_jax)
     op = np.where(np.asarray(context.rest_wave) >= FEII_UV_OPTICAL_SPLIT_A, np.exp(float(_site(tr, "log_feii_op_over_uv"))), 1.0)

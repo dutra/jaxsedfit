@@ -51,7 +51,6 @@ DEFAULT_BENCHMARK_NUTS_WARMUP = 50
 DEFAULT_BENCHMARK_NUTS_SAMPLES = 50
 DEFAULT_BENCHMARK_NUTS_CHAINS = 1
 DEFAULT_BENCHMARK_FIT_METHOD = "optax+nuts"
-_C_LIGHT_ANG_PER_S = 2.99792458e18
 _CHIMERA_FILTER_FILE_MAP = {
     "spitzer.irac.I1": "resources/filters/spitzer/irac/I1.dat",
     "spitzer.irac.I2": "resources/filters/spitzer/irac/I2.dat",
@@ -148,27 +147,19 @@ def _build_chimera_filter_set() -> FilterSet:
     )
 
 
-def _load_bruhweiler_feii_template() -> FeIITemplate:
-    """Load and normalize the vendored Bruhweiler-Verner Fe II template."""
+def _load_vendored_feii_template_inline() -> FeIITemplate:
+    """Return the built-in jaxqsofit Fe II template as inline arrays."""
     cache_key = "feii::vendored"
     cached = _BENCHMARK_RESOURCE_CACHE.get(cache_key)
     if cached is not None:
         return cached
-    path = _package_resource_path("resources/templates/Fe_d11-m20-20.5.txt")
-    data = np.loadtxt(path)
-    wave_observed = np.asarray(data[:, 0], dtype=float)
-    lnu = np.asarray(data[:, 1], dtype=float)
-    z_shift = 4593.4 / 4575.0 - 1.0
-    wave_rest = wave_observed / (1.0 + z_shift)
-    llam = lnu * _C_LIGHT_ANG_PER_S / np.clip(wave_observed * wave_observed, 1e-30, None)
-    norm_idx = int(np.argmin(np.abs(wave_rest - 4575.0)))
-    norm = float(llam[norm_idx])
-    if not np.isfinite(norm) or norm <= 0.0:
-        raise ValueError(f"Invalid FeII normalization derived from {path}.")
+    from .preload import FEII_TEMPLATE_NAME, _load_vendored_feii_template
+
+    wave, lumin = _load_vendored_feii_template()
     tmpl = FeIITemplate(
-        name="BruhweilerVerner08",
-        wave=wave_rest.tolist(),
-        lumin=(llam / norm).tolist(),
+        name=FEII_TEMPLATE_NAME,
+        wave=wave.tolist(),
+        lumin=lumin.tolist(),
         wavelength_unit="angstrom",
     )
     _BENCHMARK_RESOURCE_CACHE[cache_key] = tmpl
@@ -207,7 +198,7 @@ def _load_mor_netzer_emission_lines() -> EmissionLineTemplate:
 def _build_chimera_agn_config() -> AGNConfig:
     """Build the AGN template configuration used by the Chimera benchmark."""
     return AGNConfig(
-        feii_template=_load_bruhweiler_feii_template(),
+        feii_template=_load_vendored_feii_template_inline(),
         emission_line_template=_load_mor_netzer_emission_lines(),
     )
 

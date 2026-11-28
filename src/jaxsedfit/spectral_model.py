@@ -60,9 +60,10 @@ FWHM_TO_SIGMA = 1.0 / (2.0 * np.sqrt(2.0 * np.log(2.0)))
 BALMER_VEL_KMS_DEFAULT = 3000.0 * FWHM_TO_SIGMA
 BALMER_VEL_KMS_MAX = FE_FWHM_KMS_MAX * FWHM_TO_SIGMA
 # Rest wavelength [Angstrom] that splits a single combined Fe II template into a
-# UV piece and an optical piece. The Bruhweiler & Verner (2008) template is
-# close to zero between about 3560 and 3710 Angstrom, so a split at 3600
-# Angstrom does not cut through strong Fe II lines.
+# UV piece and an optical piece. The built-in jaxqsofit template is zero
+# between its UV piece (ending at 3500 Angstrom) and its optical piece
+# (starting at 3686 Angstrom), so a split at 3600 Angstrom separates the two
+# pieces without cutting through any Fe II line.
 FEII_UV_OPTICAL_SPLIT_A = 3600.0
 
 

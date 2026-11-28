@@ -177,14 +177,45 @@ class FilterSet:
     curves: Sequence[FilterCurve] = field(default_factory=list)
 
 
+FEII_TEMPLATE_NAME = "jaxqsofit"
+_REMOVED_FEII_TEMPLATE_NAMES = ("BruhweilerVerner08",)
+
+
+def _check_feii_template_name(name: str) -> None:
+    """Raise a clear error for a removed built-in Fe II template name.
+
+    Parameters
+    ----------
+    name : str
+        ``FeIITemplate.name`` of a template given without inline arrays.
+    """
+    if str(name) in _REMOVED_FEII_TEMPLATE_NAMES:
+        raise ValueError(
+            f"The Fe II template {name!r} was removed. The only built-in Fe II template is now "
+            f"{FEII_TEMPLATE_NAME!r} (the jaxqsofit UV + optical composite); drop "
+            "agn.feii_template.name to use it, or pass inline agn.feii_template wave/lumin arrays. "
+            "Results saved with the old template need an earlier jaxsedfit release."
+        )
+    if str(name) != FEII_TEMPLATE_NAME:
+        raise ValueError(
+            f"Unsupported Fe II template {name!r}. Provide inline agn.feii_template "
+            f"wave/lumin arrays or use the built-in {FEII_TEMPLATE_NAME!r} template."
+        )
+
+
 @dataclass
 class FeIITemplate:
     """Fe II template configuration or inline template data.
 
-    ``wavelength_unit`` is required for inline ``wave`` values. Supported
-    values are ``angstrom``, ``nm``, and ``micron`` (plus common aliases).
+    Without inline arrays, ``name`` must be ``"jaxqsofit"``: the jaxqsofit
+    (PyQSOFit) composite of the Vestergaard & Wilkes (2001), Salviander et
+    al. (2007) and Tsuzuki et al. (2006) UV template and the Boroson & Green
+    (1992) optical template. With inline ``wave``/``lumin`` arrays ``name`` is
+    only a label. ``wavelength_unit`` is required for inline ``wave`` values.
+    Supported values are ``angstrom``, ``nm``, and ``micron`` (plus common
+    aliases).
     """
-    name: str = "BruhweilerVerner08"
+    name: str = FEII_TEMPLATE_NAME
     wave: Sequence[float] | None = None
     lumin: Sequence[float] | None = None
     wavelength_unit: str | None = None
@@ -427,6 +458,8 @@ class AGNConfig:
     def validate(self) -> None:
         """Validate inline template units and array shapes."""
         allowed_units = {"angstrom", "angstroms", "aa", "a", "nm", "nanometer", "nanometers", "um", "micron", "microns"}
+        if self.feii_template.wave is None and str(self.feii_template.name) in _REMOVED_FEII_TEMPLATE_NAMES:
+            _check_feii_template_name(self.feii_template.name)
         for label, template in (("feii_template", self.feii_template), ("emission_line_template", self.emission_line_template)):
             unit = None if template.wavelength_unit is None else str(template.wavelength_unit).strip().lower()
             if template.wave is not None and unit is None:
