@@ -30,9 +30,6 @@ GRAHSP_COMMIT = "7d35f5232ac9918a785e8dfe75dff693ab246daf"
 
 def test_grahsp_agn_template_resources_match_upstream_commit():
     expected_hashes = {
-        "resources/templates/Fe_d11-m20-20.5.txt": (
-            "12bbb26587f60fa0d57bf0a4dbd30bf8cf9a537023ef3ed22f1b3592c3b8de4a"
-        ),
         "resources/templates/emission_line_table.formatted": (
             "ac9b0a7bd9fa6236d220c4ac502f11676ac6504afc13efc8ec9062b03e48482a"
         ),
@@ -43,7 +40,9 @@ def test_grahsp_agn_template_resources_match_upstream_commit():
         assert sha256(payload).hexdigest() == expected_hash
 
 
-def test_grahsp_default_feii_and_line_templates_match_static_reference():
+def test_grahsp_default_line_templates_match_static_reference():
+    # The default Fe II template is no longer the GRAHSP one; it is tested in
+    # test_feii_template.py.
     cfg = SimpleNamespace(
         agn=SimpleNamespace(
             fit_agn=True,
@@ -54,20 +53,6 @@ def test_grahsp_default_feii_and_line_templates_match_static_reference():
     )
     _TEMPLATE_CACHE.clear()
     templates = _load_templates(cfg)
-
-    feii_indices = np.asarray([0, 100, 500, 643])
-    np.testing.assert_allclose(
-        templates.feii_wave[feii_indices],
-        [1993.123938694649, 2421.2719880698396, 5273.311490399269, 6965.1870074454655],
-        rtol=0.0,
-        atol=1.0e-12,
-    )
-    np.testing.assert_allclose(
-        templates.feii_lumin[feii_indices],
-        [2.4058841096119687, 5.204779308595264, 0.27931095509872544, 0.0005717829844042825],
-        rtol=2.0e-12,
-        atol=0.0,
-    )
 
     line_indices = np.asarray([0, 5, 10, 20, 30, 35])
     np.testing.assert_array_equal(
